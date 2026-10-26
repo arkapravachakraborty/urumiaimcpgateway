@@ -67,6 +67,24 @@ if [ -z "${ENCRYPTION_KEY:-}" ]; then
   UPDATED=true
 fi
 
+if [ -z "${SESSION_SECRET:-}" ]; then
+  SESSION_SECRET="$(openssl rand -base64 48)"
+  echo "SESSION_SECRET=${SESSION_SECRET}" >> "${ENV_LOCAL_FILE}"
+  UPDATED=true
+fi
+
+if [ -z "${ADMIN_EMAIL:-}" ]; then
+  ADMIN_EMAIL="admin@localtest.me"
+  echo "ADMIN_EMAIL=${ADMIN_EMAIL}" >> "${ENV_LOCAL_FILE}"
+  UPDATED=true
+fi
+
+if [ -z "${ADMIN_PASSWORD:-}" ]; then
+  ADMIN_PASSWORD="$(openssl rand -hex 16)"
+  echo "ADMIN_PASSWORD=${ADMIN_PASSWORD}" >> "${ENV_LOCAL_FILE}"
+  UPDATED=true
+fi
+
 if [ "${UPDATED}" = true ]; then
   echo "[create-secrets] Generated new random credentials and saved to .env.local"
 else
@@ -95,6 +113,10 @@ kubectl create secret generic woocommerce-api-secret \
 # 4. Gateway encryption key
 kubectl create secret generic gateway-secret \
   --from-literal=encryption-key="${ENCRYPTION_KEY}" \
+  --from-literal=session-secret="${SESSION_SECRET}" \
+  --from-literal=admin-email="${ADMIN_EMAIL}" \
+  --from-literal=admin-password="${ADMIN_PASSWORD}" \
+  --from-literal=mcp-auth-token="${MCP_AUTH_TOKEN:-}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "[create-secrets] Kubernetes secrets created/updated successfully!"

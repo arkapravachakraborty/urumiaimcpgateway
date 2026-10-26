@@ -1,5 +1,7 @@
 import type { Express, Request, Response } from "express";
+import bcrypt from "bcryptjs";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
+import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
@@ -8,22 +10,34 @@ import {
   type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { LoginInputSchema, LoginOutputSchema } from "@repo/schemas";
+import { createApiRouter } from "./api.js";
+import {
+  authenticateMcpRequest,
+  clearSessionCookie,
+  createSessionToken,
+  readSessionCookie,
+  resolveSessionUser,
+  sessionCookie,
+  type AuthStore,
+  type AuthenticatedUser,
+} from "./auth.js";
 import type { GatewayDataRepository, AuditLogInput } from "./repository.js";
 import { UpstreamManager } from "./upstream-manager.js";
-import {
-  UpstreamTimeoutError,
-  UpstreamUnavailableError,
-} from "./upstream-manager.js";
+import { UpstreamTimeoutError, UpstreamUnavailableError } from "./upstream-manager.js";
 
 const portSchema = z.coerce.number().int().min(0).max(65_535);
 const allowedHostsSchema = z.array(z.string().trim().min(1));
 const toolCallNameSchema = z.string().regex(/^([a-z0-9-]+)__([a-zA-Z0-9_-]{1,64})$/);
 const argsSchema = z.record(z.string(), z.unknown());
+const invalidLoginPasswordHash = bcrypt.hashSync("invalid-login-attempt", 10);
 
 export interface GatewayAppOptions {
   repository: GatewayDataRepository;
   upstreamManager: UpstreamManager;
-  devUserId?: string;
+  authStore: AuthStore;
+  sessionSecret: Uint8Array;
+  encryptionKey: Buffer;
   source?: "mcp" | "chat";
 }
 
@@ -59,7 +73,70 @@ export function createGatewayApp(options: GatewayAppOptions): Express {
     }
   });
 
+  app.post("/api/auth/login", async (request: Request, response: Response) => {
+    const parsed = LoginInputSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ error: "Invalid email or password." });
+      return;
+    }
+    const email = parsed.data.email.trim().toLowerCase();
+    const user = await options.authStore.findLoginUserByEmail(email);
+    const validPassword = await bcrypt.compare(
+      parsed.data.password,
+      user?.passwordHash ?? invalidLoginPasswordHash,
+    );
+    if (!user || user.disabledAt || !validPassword) {
+      response.status(401).json({ error: "Invalid email or password." });
+      return;
+    }
+    const token = await createSessionToken(user.id, options.sessionSecret);
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Set-Cookie", sessionCookie(token, process.env.NODE_ENV === "production"));
+    response.status(200).json(
+      LoginOutputSchema.parse({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      }),
+    );
+  });
+  app.post("/api/auth/logout", (_request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Set-Cookie", clearSessionCookie(process.env.NODE_ENV === "production"));
+    response.status(200).json({ success: true });
+  });
+
+  const apiRouter = createApiRouter(options);
+  app.use(
+    "/api/trpc",
+    createExpressMiddleware({
+      router: apiRouter,
+      createContext: async ({ req, res }) => {
+        res.setHeader("Cache-Control", "no-store");
+        const token = readSessionCookie(req.headers.cookie);
+        const user = await resolveSessionUser(token, options.sessionSecret, options.authStore);
+        return { user };
+      },
+    }),
+  );
+
   app.post("/mcp", async (request: Request, response: Response) => {
+    let user: AuthenticatedUser | null;
+    try {
+      user = await authenticateMcpRequest(
+        request.header("authorization"),
+        options.sessionSecret,
+        options.authStore,
+      );
+    } catch {
+      response.status(503).json({ error: "Authentication service unavailable." });
+      return;
+    }
+    if (!user) {
+      response.setHeader("WWW-Authenticate", "Bearer");
+      response.status(401).json({ error: "Unauthorized." });
+      return;
+    }
     let server: McpServer | undefined;
     let transport: StreamableHTTPServerTransport | undefined;
     let cleanedUp = false;
@@ -72,7 +149,7 @@ export function createGatewayApp(options: GatewayAppOptions): Express {
     try {
       server = createGatewayMcpServer();
       transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      registerGatewayHandlers(server, options);
+      registerGatewayHandlers(server, options, user);
       await server.connect(transport);
       response.once("close", () => {
         void cleanup();
@@ -141,7 +218,11 @@ function createGatewayMcpServer(): McpServer {
   );
 }
 
-function registerGatewayHandlers(server: McpServer, options: GatewayAppOptions): void {
+function registerGatewayHandlers(
+  server: McpServer,
+  options: GatewayAppOptions,
+  user: AuthenticatedUser,
+): void {
   server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: await options.upstreamManager.listTools(),
   }));
@@ -156,20 +237,8 @@ function registerGatewayHandlers(server: McpServer, options: GatewayAppOptions):
     const prefixSeparator = name.indexOf("__");
     const slug = match.success ? name.slice(0, prefixSeparator) : null;
     const toolName = match.success ? name.slice(prefixSeparator + 2) : name;
-    let user: { id: string; email: string } | null = null;
 
     try {
-      if (options.devUserId) {
-        user = await options.repository.findUser(options.devUserId);
-      }
-      if (!user) {
-        status = "rejected";
-        throw new GatewayRequestError(
-          options.devUserId
-            ? "Development user is not available."
-            : "Gateway authentication is not configured.",
-        );
-      }
       if (!match.success || !slug || !toolName) {
         status = "rejected";
         throw new GatewayRequestError("Invalid tool name. Expected '<serverSlug>__<toolName>'.");
@@ -195,7 +264,7 @@ function registerGatewayHandlers(server: McpServer, options: GatewayAppOptions):
 
     const audit: AuditLogInput = {
       userId: user?.id ?? null,
-      userEmail: user?.email ?? (options.devUserId ? `dev:${options.devUserId}` : "anonymous"),
+      userEmail: user.email,
       serverSlug: slug,
       toolName,
       startedAt,

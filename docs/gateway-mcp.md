@@ -1,9 +1,9 @@
-# Gateway MCP core
+# Gateway MCP and API
 
 The gateway exposes stateless Streamable HTTP at `POST /mcp`, liveness at
-`GET /healthz`, and database readiness at `GET /readyz`. It loads enabled
-upstreams and audit users from PostgreSQL through Prisma. Each upstream request
-uses a fresh MCP SDK client connection.
+`GET /healthz`, database readiness at `GET /readyz`, password login/logout, and
+tRPC at `/api/trpc`. Users and enabled upstreams are loaded from PostgreSQL
+through Prisma. Each upstream request uses a fresh MCP SDK client connection.
 
 ## Environment
 
@@ -11,15 +11,19 @@ uses a fresh MCP SDK client connection.
 - `ENCRYPTION_KEY`: AES-256-GCM key, either 32 raw bytes encoded as base64 or
   64 hexadecimal characters. `scripts/create-secrets.sh` generates and stores
   one in `.env.local`.
-- `DEV_USER_ID`: ID of an existing, enabled database user. This development
-  identity is used for tool-call audits until the real API authentication is
-  implemented. Calls are rejected if this user is missing or disabled.
+- `SESSION_SECRET`: at least 32 characters (generate with
+  `openssl rand -base64 48`), used to sign seven-day browser
+  sessions and 60-second internal MCP tokens. Keep it stable across restarts.
+- `ADMIN_EMAIL`, `ADMIN_PASSWORD`: startup-seeded gateway administrator
+  credentials. The gateway syncs this account to the configured password at
+  startup; the local secret script generates a password if missing.
 - `GATEWAY_PORT`: listener port; defaults to `4000`.
 - `MCP_ALLOWED_HOSTS`: optional comma-separated additional Host names accepted
   by the MCP Express middleware. Localhost and `dashboard.localtest.me` are
   allowed by default.
-- `MCP_WOO_URL`, `MCP_NOTES_URL`, `MCP_UTILS_URL`: seed overrides; default to
-  the local upstream endpoints on ports 3003, 3001, and 3002.
+- `MCP_WOO_URL`, `MCP_NOTES_URL`, `MCP_UTILS_URL`: upstream URL overrides;
+  default to local endpoints on ports 3003, 3001, and 3002. On startup, the
+  gateway registers the `woo` upstream only if it does not already exist.
 - `MCP_AUTH_TOKEN`: optional bearer token used by the Woo MCP app and encrypted
   by the gateway seeder when the
   seeded `woo` upstream requires MCP authentication.
@@ -29,20 +33,64 @@ overriding variables already set by the process.
 
 ## Seed and run locally
 
-1. Set `DATABASE_URL` and `ENCRYPTION_KEY` in `.env.local`. Start PostgreSQL,
-   run `pnpm --filter @repo/db db:generate`, then apply the database migrations
-   and seed a user with `pnpm --filter @repo/db db:migrate` and
-   `pnpm --filter @repo/db db:seed`.
-2. Set `DEV_USER_ID` to the seeded user's ID. The seed command prints that ID.
-3. In separate terminals, start the `@repo/mcp-notes`, `@repo/mcp-utils`, and
-   `@repo/woo-mcp` apps. Configure the WooCommerce app's store environment as
-   described in [woo-mcp.md](./woo-mcp.md).
-4. Run `pnpm --filter @repo/gateway seed:upstreams` to upsert the enabled
-   `woo`, `notes`, and `utils` upstream rows. Set the same `MCP_AUTH_TOKEN` for
-   the Woo MCP app and gateway seeder if it is enabled; the seeder encrypts it
-   before storing it.
-5. Start the gateway with `pnpm --filter @repo/gateway dev`. Connect MCP
-   Inspector using the Streamable HTTP URL `http://localhost:4000/mcp`.
+1. Set `DATABASE_URL`, `ENCRYPTION_KEY`, `SESSION_SECRET`, `ADMIN_EMAIL`, and
+   `ADMIN_PASSWORD` in `.env.local`. Start PostgreSQL, run
+   `pnpm --filter @repo/db db:generate`, then apply migrations with
+   `pnpm --filter @repo/db db:migrate`.
+2. Start `@repo/mcp-notes`, `@repo/mcp-utils`, and `@repo/woo-mcp` in separate
+   terminals. Configure WooCommerce as described in [woo-mcp.md](./woo-mcp.md).
+3. Run `pnpm --filter @repo/gateway seed:upstreams` to register `notes` and
+   `utils` and refresh the local upstream URLs. Configure the same
+   `MCP_AUTH_TOKEN` for Woo MCP and the gateway if enabled.
+4. Start the gateway with `pnpm --filter @repo/gateway dev`. Startup creates or
+   syncs the admin user and creates the `woo` upstream only when it is missing.
+5. Connect MCP Inspector to `http://localhost:4000/mcp` and set an
+   `Authorization: Bearer mcpgw_...` header. API keys are created in tRPC and
+   their raw value is displayed only once.
+
+## Authentication and tRPC
+
+`POST /api/auth/login` accepts `{ "email": "...", "password": "..." }` and
+returns the signed-in user while setting the httpOnly, SameSite=Lax
+`mcp_gateway_session` cookie. `POST /api/auth/logout` clears that cookie.
+Disabled accounts cannot log in or use an existing session.
+
+The tRPC endpoint is `/api/trpc`. Procedures are grouped under `servers`,
+`members`, `keys`, and `audit`. Server/member administration requires the
+`ADMIN` role. Members may create, list, and revoke their own API keys and view
+their own audit rows; administrators can manage other users' keys and query all
+audit rows. Use the shared schemas in `@repo/schemas` for validated procedure
+inputs and outputs. Server API responses expose only a `hasCredential` flag,
+never the encrypted or plaintext upstream credential.
+
+Procedures: `servers.list/create/update/setEnabled/remove/testConnection`,
+`members.list/create/disable`, `keys.create/listMine/revoke/listAll/revokeAny`,
+and `audit.list`. `members.create` generates a temporary password and returns
+it once. `keys.create` returns the raw API key once; subsequent key listings
+return only the short prefix.
+
+The MCP endpoint accepts API keys (`mcpgw_<random>`) or a signed internal JWT.
+API keys are stored as SHA-256 hashes; every HTTP request checks the current
+key revocation state and account status in PostgreSQL and updates `lastUsedAt`.
+Thus, after revocation, the next MCP request receives HTTP 401. Internal tokens
+are limited to 60 seconds and are resolved to the current enabled user for
+audit attribution.
+
+Example login and API key issue with curl:
+
+```sh
+curl -i -c cookies.txt -H 'Content-Type: application/json' \
+  -d '{"email":"admin@localtest.me","password":"<ADMIN_PASSWORD>"}' \
+  http://localhost:4000/api/auth/login
+
+curl -b cookies.txt -H 'Content-Type: application/json' \
+  -d '{"json":{"name":"inspector"}}' \
+  http://localhost:4000/api/trpc/keys.create
+```
+
+Use the returned `key` as `Authorization: Bearer <key>` for MCP. Then call
+`keys.revoke` with its ID through the cookie-authenticated tRPC endpoint; the
+next request with that key will return 401.
 
 The encryption format stored in `McpServer.encryptedCredential` is
 `v1:<base64-iv>:<base64-auth-tag>:<base64-ciphertext>`. The AES-GCM IV is

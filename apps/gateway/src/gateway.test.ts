@@ -9,9 +9,19 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import bcrypt from "bcryptjs";
 import { decryptCredential, encryptCredential, parseEncryptionKey } from "./crypto.js";
 import { HealthChecker } from "./health-checker.js";
 import { startGateway } from "./gateway.js";
+import { createApiRouter, toServerOutput } from "./api.js";
+import {
+  createInternalToken,
+  hashApiKey,
+  type AuthStore,
+  type LoginUser,
+  type StoredApiKey,
+} from "./auth.js";
 import type { AuditLogInput, GatewayDataRepository } from "./repository.js";
 import {
   UpstreamManager,
@@ -20,7 +30,46 @@ import {
 } from "./upstream-manager.js";
 
 const encryptionKey = randomBytes(32);
-const user = { id: "test-user", email: "test@example.com" };
+const user = { id: "test-user", email: "test@example.com", role: "ADMIN" as const };
+const testApiKey = `mcpgw_${randomBytes(32).toString("base64url")}`;
+const sessionSecret = new TextEncoder().encode("test-session-secret-with-more-than-32-characters");
+
+class FakeAuthStore implements AuthStore {
+  readonly keys = new Map<string, StoredApiKey>();
+  readonly usedKeys: string[] = [];
+  userDisabled = false;
+  loginUser: LoginUser | null = null;
+
+  constructor() {
+    this.keys.set(hashApiKey(testApiKey), {
+      id: "test-key",
+      revokedAt: null,
+      user: { ...user, disabledAt: null },
+    });
+  }
+
+  async findAuthUserById(id: string) {
+    if (id !== user.id) return null;
+    return { ...user, disabledAt: this.userDisabled ? new Date() : null };
+  }
+
+  async findLoginUserByEmail(email: string): Promise<LoginUser | null> {
+    return this.loginUser?.email === email ? this.loginUser : null;
+  }
+
+  async findApiKeyByHash(keyHash: string): Promise<StoredApiKey | null> {
+    const key = this.keys.get(keyHash);
+    if (!key) return null;
+    return {
+      ...key,
+      user: { ...key.user, disabledAt: this.userDisabled ? new Date() : null },
+    };
+  }
+
+  async touchApiKey(id: string): Promise<void> {
+    this.usedKeys.push(id);
+  }
+}
 
 class FakeRepository implements GatewayDataRepository {
   readonly servers: UpstreamServer[];
@@ -51,10 +100,6 @@ class FakeRepository implements GatewayDataRepository {
 
   async ping(): Promise<void> {
     if (this.pingFails) throw new Error("Database unavailable");
-  }
-
-  async findUser(id: string): Promise<typeof user | null> {
-    return id === user.id ? user : null;
   }
 
   async createAuditLog(input: AuditLogInput): Promise<void> {
@@ -146,11 +191,7 @@ async function startFakeUpstream(
   };
 }
 
-function server(
-  slug: string,
-  url: string,
-  options: Partial<UpstreamServer> = {},
-): UpstreamServer {
+function server(slug: string, url: string, options: Partial<UpstreamServer> = {}): UpstreamServer {
   return {
     id: slug,
     slug,
@@ -178,6 +219,7 @@ let gatewayClient: Client;
 let gatewayServer: Awaited<ReturnType<typeof startGateway>>;
 let repository: FakeRepository;
 let healthChecker: HealthChecker;
+let authStore: FakeAuthStore;
 
 before(async () => {
   healthyNotes = await startFakeUpstream("notes");
@@ -209,13 +251,16 @@ before(async () => {
     }),
     server("disabled", healthyNotes.url, { enabled: false, status: "DISABLED" }),
   ]);
+  authStore = new FakeAuthStore();
   const upstreamManager = new UpstreamManager(repository, encryptionKey, {
     healthTimeoutMs: 2_500,
   });
   gatewayServer = await startGateway({
     repository,
     upstreamManager,
-    devUserId: user.id,
+    authStore,
+    sessionSecret,
+    encryptionKey,
     host: "127.0.0.1",
     port: 0,
   });
@@ -226,11 +271,7 @@ after(async () => {
   await gatewayClient?.close().catch(() => undefined);
   healthChecker?.stop();
   await gatewayServer?.close();
-  await Promise.all([
-    healthyNotes?.close(),
-    healthyUtils?.close(),
-    slowUpstream?.close(),
-  ]);
+  await Promise.all([healthyNotes?.close(), healthyUtils?.close(), slowUpstream?.close()]);
 });
 
 test("gateway exposes prefixed live and cached tools without collisions", async () => {
@@ -242,7 +283,10 @@ test("gateway exposes prefixed live and cached tools without collisions", async 
   assert.ok(names.includes("slow__cached"), JSON.stringify(names));
   assert.ok(names.includes("dead__cached_dead"), JSON.stringify(names));
   assert.equal(new Set(names).size, names.length);
-  assert.equal(names.some((name) => name.startsWith("disabled__")), false);
+  assert.equal(
+    names.some((name) => name.startsWith("disabled__")),
+    false,
+  );
 });
 
 test("calls healthy tools while dead and slow upstream failures are isolated", async () => {
@@ -319,11 +363,25 @@ test("health checks run in parallel, cache tools, and isolate dead upstreams", a
 });
 
 test("writes audit rows for successful and failed tool calls", () => {
-  assert.ok(repository.audits.some((audit) => audit.status === "success" && audit.serverSlug === "notes"));
-  assert.ok(repository.audits.some((audit) => audit.status === "timeout" && audit.serverSlug === "slow"));
-  assert.ok(repository.audits.some((audit) => audit.status === "rejected" && audit.serverSlug === "dead"));
-  assert.ok(repository.audits.some((audit) => audit.status === "rejected" && audit.serverSlug === "disabled"));
-  assert.ok(repository.audits.some((audit) => audit.status === "rejected" && audit.serverSlug === "missing"));
+  assert.ok(
+    repository.audits.some((audit) => audit.status === "success" && audit.serverSlug === "notes"),
+  );
+  assert.ok(
+    repository.audits.some((audit) => audit.status === "timeout" && audit.serverSlug === "slow"),
+  );
+  assert.ok(
+    repository.audits.some((audit) => audit.status === "rejected" && audit.serverSlug === "dead"),
+  );
+  assert.ok(
+    repository.audits.some(
+      (audit) => audit.status === "rejected" && audit.serverSlug === "disabled",
+    ),
+  );
+  assert.ok(
+    repository.audits.some(
+      (audit) => audit.status === "rejected" && audit.serverSlug === "missing",
+    ),
+  );
   assert.ok(repository.audits.every((audit) => audit.userId === user.id && audit.source === "mcp"));
 });
 
@@ -339,11 +397,13 @@ test("sends decrypted bearer and custom-header credentials to upstreams", async 
       server("bearer", bearerUpstream.url, {
         authType: "BEARER",
         encryptedCredential: encryptCredential("bearer-secret", encryptionKey),
+        callTimeoutMs: 3_000,
       }),
       server("header", headerUpstream.url, {
         authType: "HEADER",
         authHeaderName: "X-API-Key",
         encryptedCredential: encryptCredential("header-secret", encryptionKey),
+        callTimeoutMs: 3_000,
       }),
     ]);
     const manager = new UpstreamManager(testRepository, encryptionKey);
@@ -363,12 +423,113 @@ test("sends decrypted bearer and custom-header credentials to upstreams", async 
 test("AES-256-GCM credentials decrypt and reject tampering", () => {
   const encrypted = encryptCredential("private-token", encryptionKey);
   assert.equal(decryptCredential(encrypted, encryptionKey), "private-token");
-  assert.deepEqual(
-    parseEncryptionKey(encryptionKey.toString("base64")),
-    encryptionKey,
-  );
+  assert.deepEqual(parseEncryptionKey(encryptionKey.toString("base64")), encryptionKey);
   assert.throws(() => decryptCredential(`${encrypted.slice(0, -2)}xx`, encryptionKey));
   assert.throws(() => parseEncryptionKey("too-short"));
+});
+
+test("revoked API keys are rejected on the next MCP HTTP request", async () => {
+  const requestsBefore = authStore.usedKeys.length;
+  const beforeRevoke = await fetch(`${gatewayServer.url}/mcp`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${testApiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+  assert.notEqual(beforeRevoke.status, 401);
+  assert.equal(authStore.usedKeys.length, requestsBefore + 1);
+
+  const key = authStore.keys.get(hashApiKey(testApiKey));
+  assert.ok(key);
+  authStore.keys.set(hashApiKey(testApiKey), { ...key, revokedAt: new Date() });
+  const afterRevoke = await fetch(`${gatewayServer.url}/mcp`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${testApiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+  });
+  assert.equal(afterRevoke.status, 401);
+  assert.equal(authStore.usedKeys.length, requestsBefore + 1);
+});
+
+test("members are forbidden from admin procedures", async () => {
+  const manager = new UpstreamManager(repository, encryptionKey);
+  const caller = createApiRouter({
+    repository,
+    upstreamManager: manager,
+    encryptionKey,
+  }).createCaller({ user: { id: "member-id", email: "member@example.com", role: "MEMBER" } });
+
+  await assert.rejects(caller.servers.list(), (error: unknown) => {
+    return error instanceof TRPCError && error.code === "FORBIDDEN";
+  });
+});
+
+test("server API output never includes encrypted or plaintext credentials", () => {
+  const secret = "upstream-credential-must-not-leak";
+  const output = toServerOutput({
+    id: "server-id",
+    slug: "private",
+    name: "Private upstream",
+    url: `https://example.test/mcp?token=${secret}`,
+    enabled: true,
+    authType: "BEARER",
+    authHeaderName: null,
+    encryptedCredential: secret,
+    callTimeoutMs: 15_000,
+    status: "CONNECTED",
+    statusCheckedAt: new Date(),
+    lastError: secret,
+    cachedTools: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  assert.equal(output.hasCredential, true);
+  assert.equal(JSON.stringify(output).includes(secret), false);
+});
+
+test("login issues an httpOnly session cookie consumed by tRPC context", async () => {
+  authStore.loginUser = {
+    ...user,
+    passwordHash: await bcrypt.hash("correct-password", 4),
+    disabledAt: null,
+  };
+  const loginResponse = await fetch(`${gatewayServer.url}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: user.email, password: "correct-password" }),
+  });
+  assert.equal(loginResponse.status, 200);
+  const cookieHeader = loginResponse.headers.get("set-cookie");
+  assert.ok(cookieHeader?.includes("HttpOnly"));
+  assert.ok(cookieHeader?.includes("SameSite=Lax"));
+  assert.equal(JSON.stringify(await loginResponse.json()).includes("password"), false);
+
+  const meResponse = await fetch(`${gatewayServer.url}/api/trpc/auth.me`, {
+    headers: { Cookie: cookieHeader?.split(";")[0] ?? "" },
+  });
+  assert.equal(meResponse.status, 200);
+  assert.match(await meResponse.text(), /test@example\.com/);
+});
+
+test("MCP accepts a short-lived internal user JWT", async () => {
+  const token = await createInternalToken(user.id, sessionSecret);
+  const response = await fetch(`${gatewayServer.url}/mcp`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+  assert.notEqual(response.status, 401);
 });
 
 function firstText(result: Awaited<ReturnType<Client["callTool"]>>): string {
@@ -392,7 +553,9 @@ async function connectGatewayClient(
 ): Promise<Client> {
   const client = new Client({ name: "gateway-test-client", version: "1.0.0" });
   await client.connect(
-    new StreamableHTTPClientTransport(new URL(`${runningServer.url}/mcp`)),
+    new StreamableHTTPClientTransport(new URL(`${runningServer.url}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${testApiKey}` } },
+    }),
   );
   return client;
 }

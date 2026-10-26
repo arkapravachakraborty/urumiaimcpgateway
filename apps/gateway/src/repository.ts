@@ -1,15 +1,6 @@
-import {
-  AuditSource,
-  AuditStatus,
-  Prisma,
-  prisma,
-  ServerStatus,
-} from "@repo/db";
-import type {
-  GatewayRepository,
-  ServerHealthUpdate,
-  UpstreamServer,
-} from "./upstream-manager.js";
+import { AuditSource, AuditStatus, Prisma, prisma, ServerStatus } from "@repo/db";
+import type { GatewayRepository, ServerHealthUpdate, UpstreamServer } from "./upstream-manager.js";
+import type { AuthStore, LoginUser, StoredApiKey } from "./auth.js";
 import { z } from "zod";
 
 const upstreamRecordSchema = z.object({
@@ -43,11 +34,10 @@ export interface AuditLogInput {
 
 export interface GatewayDataRepository extends GatewayRepository {
   ping(): Promise<void>;
-  findUser(id: string): Promise<{ id: string; email: string } | null>;
   createAuditLog(input: AuditLogInput): Promise<void>;
 }
 
-export class PrismaGatewayRepository implements GatewayDataRepository {
+export class PrismaGatewayRepository implements GatewayDataRepository, AuthStore {
   async findEnabledServers(): Promise<UpstreamServer[]> {
     const servers = await prisma.mcpServer.findMany({ where: { enabled: true } });
     return mapServers(servers);
@@ -82,13 +72,43 @@ export class PrismaGatewayRepository implements GatewayDataRepository {
     await prisma.$queryRaw`SELECT 1`;
   }
 
-  async findUser(id: string): Promise<{ id: string; email: string } | null> {
+  async findAuthUserById(id: string) {
     const user = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, email: true, disabledAt: true },
+      select: { id: true, email: true, role: true, disabledAt: true },
     });
-    if (!user || user.disabledAt) return null;
-    return { id: user.id, email: user.email };
+    return user;
+  }
+
+  async findLoginUserByEmail(email: string): Promise<LoginUser | null> {
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        passwordHash: true,
+        disabledAt: true,
+      },
+    });
+    return user;
+  }
+
+  async findApiKeyByHash(keyHash: string): Promise<StoredApiKey | null> {
+    return prisma.apiKey.findUnique({
+      where: { keyHash },
+      select: {
+        id: true,
+        revokedAt: true,
+        user: {
+          select: { id: true, email: true, role: true, disabledAt: true },
+        },
+      },
+    });
+  }
+
+  async touchApiKey(id: string, lastUsedAt: Date): Promise<void> {
+    await prisma.apiKey.update({ where: { id }, data: { lastUsedAt } });
   }
 
   async createAuditLog(input: AuditLogInput): Promise<void> {
@@ -103,7 +123,9 @@ export class PrismaGatewayRepository implements GatewayDataRepository {
   }
 }
 
-function mapServers(servers: Array<Parameters<typeof upstreamRecordSchema.parse>[0]>): UpstreamServer[] {
+function mapServers(
+  servers: Array<Parameters<typeof upstreamRecordSchema.parse>[0]>,
+): UpstreamServer[] {
   const validated: UpstreamServer[] = [];
   for (const server of servers) {
     const parsed = upstreamRecordSchema.safeParse(server);

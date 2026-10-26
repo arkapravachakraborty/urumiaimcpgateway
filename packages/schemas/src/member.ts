@@ -11,6 +11,22 @@ export const CreateMemberInputSchema = z.object({
   role: RoleSchema.default("MEMBER"),
 });
 
+export const AdminCreateMemberInputSchema = z.object({
+  email: z.string().email("Must be a valid email address"),
+  role: RoleSchema.default("MEMBER"),
+});
+
+export const AdminCreateMemberOutputSchema = z.object({
+  member: z.object({
+    id: z.string(),
+    email: z.string().email(),
+    role: RoleSchema,
+    createdAt: z.coerce.date(),
+    disabledAt: z.coerce.date().nullable(),
+  }),
+  temporaryPassword: z.string().min(1),
+});
+
 /**
  * Input for updating a member.
  */
@@ -27,6 +43,12 @@ export const UpdateMemberInputSchema = z.object({
 export const LoginInputSchema = z.object({
   email: z.string().email("Must be a valid email address"),
   password: z.string().min(1, "Password is required"),
+});
+
+export const LoginOutputSchema = z.object({
+  id: z.string(),
+  email: z.string().email(),
+  role: RoleSchema,
 });
 
 /**
