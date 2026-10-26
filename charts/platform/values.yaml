@@ -1,0 +1,63 @@
+global:
+  environment: local
+
+mariadb:
+  image:
+    repository: mariadb
+    tag: "11.4"
+    pullPolicy: IfNotPresent
+  database: wordpress
+  user: wordpress
+  existingSecret: mariadb-secret
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+wordpress:
+  image:
+    repository: wordpress
+    tag: "6.7.2-apache"
+    pullPolicy: IfNotPresent
+  publicUrl: "http://shop.localtest.me:8080"
+  title: "WooCommerce Demo Store"
+  adminUser: "admin"
+  adminEmail: "admin@localtest.me"
+  existingSecret: wordpress-secret
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 2Gi
+  ingress:
+    enabled: true
+    className: traefik
+    host: shop.localtest.me
+    tls: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+setup:
+  image:
+    repository: wordpress
+    tag: "cli-2.11.0"
+    pullPolicy: IfNotPresent
+  apiSecret: woocommerce-api-secret
+  store:
+    currency: USD
+    product:
+      name: "Sample Product"
+      slug: "sample-product"
+      price: "19.99"
+      description: "A sample WooCommerce product created during store initialization."

@@ -1,0 +1,250 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "platform.fullname" . }}-store-setup
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: store-setup
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+    "helm.sh/hook-weight": "5"
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: store-setup
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: setup
+          image: "{{ .Values.setup.image.repository }}:{{ .Values.setup.image.tag }}"
+          imagePullPolicy: {{ .Values.setup.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              echo "[setup] Starting WordPress & WooCommerce initialization..."
+
+              # 1. Wait for MariaDB to be reachable
+              echo "[setup] Waiting for MariaDB at ${WORDPRESS_DB_HOST}..."
+              DB_HOST_ONLY="${WORDPRESS_DB_HOST%:*}"
+              until mysqladmin ping -h "${DB_HOST_ONLY}" -u "${WORDPRESS_DB_USER}" -p"${WORDPRESS_DB_PASSWORD}" --silent; do
+                echo "MariaDB not ready yet, sleeping 2s..."
+                sleep 2
+              done
+              echo "[setup] MariaDB is ready."
+
+              # Download WordPress core if missing
+              if [ ! -f /var/www/html/wp-load.php ]; then
+                echo "[setup] Downloading WordPress core..."
+                wp core download --path=/var/www/html --skip-content --force
+              fi
+
+              # Create wp-config.php if missing
+              if [ ! -f /var/www/html/wp-config.php ]; then
+                echo "[setup] Generating wp-config.php..."
+                wp config create --path=/var/www/html \
+                  --dbname="${WORDPRESS_DB_NAME}" \
+                  --dbuser="${WORDPRESS_DB_USER}" \
+                  --dbpass="${WORDPRESS_DB_PASSWORD}" \
+                  --dbhost="${WORDPRESS_DB_HOST}" \
+                  --extra-php="
+              if (isset(\$_SERVER['HTTP_X_FORWARDED_PROTO']) && \$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+                  \$_SERVER['HTTPS'] = 'on';
+              }
+              if (isset(\$_SERVER['HTTP_HOST']) && strpos(\$_SERVER['HTTP_HOST'], 'localtest.me') !== false) {
+                  \$_SERVER['HTTPS'] = 'on';
+              }
+              if (isset(\$_SERVER['HTTP_AUTHORIZATION'])) {
+                  list(\$type, \$cred) = explode(' ', \$_SERVER['HTTP_AUTHORIZATION'], 2);
+                  if (strtolower(\$type) === 'basic') {
+                      list(\$user, \$pass) = explode(':', base64_decode(\$cred), 2);
+                      \$_SERVER['PHP_AUTH_USER'] = \$user;
+                      \$_SERVER['PHP_AUTH_PW'] = \$pass;
+                  }
+              }
+              " \
+                  --skip-check
+              fi
+
+              # 2. Run wp core install
+              if ! wp core is-installed --path=/var/www/html 2>/dev/null; then
+                echo "[setup] Running wp core install..."
+                wp core install --path=/var/www/html \
+                  --url="${WP_SITEURL}" \
+                  --title="${WP_TITLE}" \
+                  --admin_user="${WP_ADMIN_USER}" \
+                  --admin_password="${WP_ADMIN_PASSWORD}" \
+                  --admin_email="${WP_ADMIN_EMAIL}" \
+                  --skip-email
+                echo "[setup] WordPress core installed."
+              else
+                echo "[setup] WordPress core is already installed."
+              fi
+
+              # Ensure URLs match current values
+              wp option update home "${WP_SITEURL}" --path=/var/www/html
+              wp option update siteurl "${WP_SITEURL}" --path=/var/www/html
+
+              # 3. Set pretty permalinks
+              echo "[setup] Setting pretty permalinks..."
+              wp rewrite structure '/%postname%/' --path=/var/www/html --hard
+
+              # 4. Install and activate WooCommerce
+              if ! wp plugin is-active woocommerce --path=/var/www/html 2>/dev/null; then
+                echo "[setup] Installing and activating WooCommerce..."
+                wp plugin install woocommerce --activate --path=/var/www/html
+              else
+                echo "[setup] WooCommerce is already installed and activated."
+              fi
+
+              # 5. Enable Cash on Delivery (COD)
+              echo "[setup] Enabling Cash on Delivery (COD)..."
+              wp eval '
+                update_option("woocommerce_cod_settings", array(
+                  "enabled"            => "yes",
+                  "title"              => "Cash on delivery",
+                  "description"        => "Pay with cash upon delivery.",
+                  "instructions"       => "Pay with cash upon delivery.",
+                  "enable_for_methods" => array(),
+                  "enable_for_virtual" => "yes",
+                ));
+              ' --path=/var/www/html
+
+              # 6. Set currency
+              echo "[setup] Setting currency to ${WOO_CURRENCY}..."
+              wp option update woocommerce_currency "${WOO_CURRENCY}" --path=/var/www/html
+
+              # 7. Run WooCommerce page install
+              echo "[setup] Installing WooCommerce default pages..."
+              wp eval '
+                if (class_exists("WC_Install")) {
+                  WC_Install::create_pages();
+                  echo "WooCommerce pages created/verified.\n";
+                }
+              ' --path=/var/www/html
+
+              # 8. Allow guest checkout
+              echo "[setup] Configuring guest checkout..."
+              wp option update woocommerce_enable_guest_checkout 'yes' --path=/var/www/html
+              wp option update woocommerce_enable_checkout_login_reminder 'no' --path=/var/www/html
+
+              # 9. Create one sample product
+              echo "[setup] Ensuring sample product exists..."
+              wp eval '
+                $slug = getenv("PRODUCT_SLUG");
+                $name = getenv("PRODUCT_NAME");
+                $price = getenv("PRODUCT_PRICE");
+                $desc = getenv("PRODUCT_DESC");
+
+                $existing = get_page_by_path($slug, OBJECT, "product");
+                if (!$existing) {
+                  $product = new WC_Product_Simple();
+                  $product->set_name($name);
+                  $product->set_slug($slug);
+                  $product->set_regular_price($price);
+                  $product->set_description($desc);
+                  $product->set_short_description($desc);
+                  $product->set_status("publish");
+                  $product->set_catalog_visibility("visible");
+                  $product_id = $product->save();
+                  echo "Sample product created with ID: {$product_id}\n";
+                } else {
+                  echo "Sample product already exists (ID: {$existing->ID})\n";
+                }
+              ' --path=/var/www/html
+
+              # 10. Insert pre-generated REST API key pair (read/write) into wp_woocommerce_api_keys
+              echo "[setup] Ensuring WooCommerce REST API key pair is configured..."
+              wp eval '
+                global $wpdb;
+                $ck = getenv("WOO_CONSUMER_KEY");
+                $cs = getenv("WOO_CONSUMER_SECRET");
+                if (empty($ck) || empty($cs)) {
+                  throw new Exception("Missing WOO_CONSUMER_KEY or WOO_CONSUMER_SECRET");
+                }
+
+                $hashed_ck = hash_hmac("sha256", $ck, "wc-api");
+                $existing_id = $wpdb->get_var($wpdb->prepare(
+                  "SELECT key_id FROM {$wpdb->prefix}woocommerce_api_keys WHERE consumer_key = %s",
+                  $hashed_ck
+                ));
+
+                if (!$existing_id) {
+                  $admin = get_user_by("login", getenv("WP_ADMIN_USER"));
+                  $user_id = $admin ? $admin->ID : 1;
+                  $wpdb->insert(
+                    $wpdb->prefix . "woocommerce_api_keys",
+                    array(
+                      "user_id"         => $user_id,
+                      "description"     => "MCP Gateway Team Key",
+                      "permissions"     => "read_write",
+                      "consumer_key"    => $hashed_ck,
+                      "consumer_secret" => $cs,
+                      "truncated_key"   => substr($ck, -7),
+                    ),
+                    array("%d", "%s", "%s", "%s", "%s", "%s")
+                  );
+                  echo "Inserted WooCommerce API key (read_write) for user {$user_id}.\n";
+                } else {
+                  echo "WooCommerce API key already exists in database (key_id: {$existing_id}).\n";
+                }
+              ' --path=/var/www/html
+
+              echo "[setup] Store setup completed successfully!"
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: "mariadb:3306"
+            - name: WORDPRESS_DB_NAME
+              value: {{ .Values.mariadb.database | quote }}
+            - name: WORDPRESS_DB_USER
+              value: {{ .Values.mariadb.user | quote }}
+            - name: WORDPRESS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mariadb.existingSecret }}
+                  key: mariadb-password
+            - name: WP_SITEURL
+              value: {{ .Values.wordpress.publicUrl | quote }}
+            - name: WP_TITLE
+              value: {{ .Values.wordpress.title | quote }}
+            - name: WP_ADMIN_USER
+              value: {{ .Values.wordpress.adminUser | quote }}
+            - name: WP_ADMIN_EMAIL
+              value: {{ .Values.wordpress.adminEmail | quote }}
+            - name: WP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.wordpress.existingSecret }}
+                  key: wordpress-admin-password
+            - name: WOO_CONSUMER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.setup.apiSecret }}
+                  key: consumer-key
+            - name: WOO_CONSUMER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.setup.apiSecret }}
+                  key: consumer-secret
+            - name: WOO_CURRENCY
+              value: {{ .Values.setup.store.currency | quote }}
+            - name: PRODUCT_NAME
+              value: {{ .Values.setup.store.product.name | quote }}
+            - name: PRODUCT_SLUG
+              value: {{ .Values.setup.store.product.slug | quote }}
+            - name: PRODUCT_PRICE
+              value: {{ .Values.setup.store.product.price | quote }}
+            - name: PRODUCT_DESC
+              value: {{ .Values.setup.store.product.description | quote }}
+          volumeMounts:
+            - name: wp-content
+              mountPath: /var/www/html/wp-content
+      volumes:
+        - name: wp-content
+          persistentVolumeClaim:
+            claimName: wordpress-wp-content

@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordpress
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: wordpress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "platform.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: wordpress
+  template:
+    metadata:
+      labels:
+        {{- include "platform.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: wordpress
+    spec:
+      containers:
+        - name: wordpress
+          image: "{{ .Values.wordpress.image.repository }}:{{ .Values.wordpress.image.tag }}"
+          imagePullPolicy: {{ .Values.wordpress.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: WORDPRESS_DB_HOST
+              value: "mariadb:3306"
+            - name: WORDPRESS_DB_NAME
+              value: {{ .Values.mariadb.database | quote }}
+            - name: WORDPRESS_DB_USER
+              value: {{ .Values.mariadb.user | quote }}
+            - name: WORDPRESS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mariadb.existingSecret }}
+                  key: mariadb-password
+            - name: WP_HOME
+              value: {{ .Values.wordpress.publicUrl | quote }}
+            - name: WP_SITEURL
+              value: {{ .Values.wordpress.publicUrl | quote }}
+            - name: WORDPRESS_CONFIG_EXTRA
+              value: |
+                // Honor reverse proxy X-Forwarded-Proto header
+                if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+                    $_SERVER['HTTPS'] = 'on';
+                }
+                // Allow basic auth over HTTP for local / cluster internal requests
+                if (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'localtest.me') !== false) {
+                    $_SERVER['HTTPS'] = 'on';
+                }
+                // Pass through Basic Authorization header if stripped by Apache
+                if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+                    list($type, $cred) = explode(' ', $_SERVER['HTTP_AUTHORIZATION'], 2);
+                    if (strtolower($type) === 'basic') {
+                        list($user, $pass) = explode(':', base64_decode($cred), 2);
+                        $_SERVER['PHP_AUTH_USER'] = $user;
+                        $_SERVER['PHP_AUTH_PW'] = $pass;
+                    }
+                }
+          volumeMounts:
+            - name: wp-content
+              mountPath: /var/www/html/wp-content
+          resources:
+            {{- toYaml .Values.wordpress.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /wp-login.php
+              port: 80
+              httpHeaders:
+                - name: Host
+                  value: {{ .Values.wordpress.ingress.host | quote }}
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /wp-login.php
+              port: 80
+              httpHeaders:
+                - name: Host
+                  value: {{ .Values.wordpress.ingress.host | quote }}
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 5
+      volumes:
+        - name: wp-content
+          persistentVolumeClaim:
+            claimName: wordpress-wp-content

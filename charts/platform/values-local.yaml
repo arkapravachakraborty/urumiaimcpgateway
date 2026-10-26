@@ -1,0 +1,9 @@
+global:
+  environment: local
+
+wordpress:
+  publicUrl: "http://shop.localtest.me:8080"
+  ingress:
+    enabled: true
+    className: traefik
+    host: shop.localtest.me

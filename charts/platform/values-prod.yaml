@@ -1,0 +1,29 @@
+global:
+  environment: production
+
+wordpress:
+  publicUrl: "https://shop.yourdomain.com"
+  ingress:
+    enabled: true
+    className: traefik
+    host: shop.yourdomain.com
+    tls:
+      - secretName: shop-tls
+        hosts:
+          - shop.yourdomain.com
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+mariadb:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
