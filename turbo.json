@@ -32,6 +32,9 @@
         "MCP_NOTES_URL",
         "MCP_UTILS_URL",
         "MCP_AUTH_TOKEN",
+        "MCP_WOO_TOKEN",
+        "MCP_NOTES_TOKEN",
+        "MCP_UTILS_TOKEN",
         "LLM_PROVIDER",
         "LLM_API_KEY",
         "LLM_MODEL",
@@ -44,10 +47,15 @@
       ],
       "persistent": true
     },
-    "db:generate": {},
-    "db:migrate": {},
+    "db:generate": {
+      "passThroughEnv": ["DATABASE_URL"]
+    },
+    "db:migrate": {
+      "passThroughEnv": ["DATABASE_URL"]
+    },
     "db:seed": {
-      "cache": false
+      "cache": false,
+      "passThroughEnv": ["DATABASE_URL", "ADMIN_EMAIL", "ADMIN_PASSWORD"]
     }
   }
 }

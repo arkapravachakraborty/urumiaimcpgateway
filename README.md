@@ -51,13 +51,16 @@ required just to run the local cluster.
 From the repository root:
 
 ```bash
+# Only if .env does not exist yet:
+cp .env.example .env
 bash scripts/up.sh
 ```
 
 The script creates/starts the `mcp` k3d cluster, generates missing local
-credentials, creates Kubernetes Secrets in namespace `platform`, builds and
-imports the five application images, and installs/upgrades the Helm release.
-The first run can take several minutes while images and WordPress are initialized.
+credentials in the ignored root `.env`, creates Kubernetes Secrets in namespace
+`platform`, builds and imports the five application images, and installs/upgrades
+the Helm release. The first run can take several minutes while images and
+WordPress are initialized.
 
 ### URLs
 
@@ -74,18 +77,18 @@ The first run can take several minutes while images and WordPress are initialize
 There is no committed default password. The first run creates
 `admin@localtest.me` as the dashboard administrator and generates a random
 password. WordPress uses the username `admin` and a separately generated
-password. Both are saved in the ignored `.env.local` file at the repository
+password. Both are saved in the ignored `.env` file at the repository
 root. Read them locally with:
 
 ```bash
-grep -E '^(ADMIN_EMAIL|ADMIN_PASSWORD|WORDPRESS_ADMIN_PASSWORD)=' .env.local
+grep -E '^(ADMIN_EMAIL|ADMIN_PASSWORD|WORDPRESS_ADMIN_PASSWORD)=' .env
 ```
 
 Do not paste these values into source control or support requests. You can set
-`ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env.local` before the first start to
+`ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` before the first start to
 choose your own dashboard login. `scripts/create-secrets.sh` preserves
 credentials on later runs. For chat, configure `LLM_API_KEY` and the provider
-settings in `.env.local`; the store, dashboard, and external MCP API can be
+settings in `.env`; the store, dashboard, and external MCP API can be
 used without an LLM key.
 
 The bundled store setup creates a sample product and enables Cash on Delivery
@@ -109,14 +112,20 @@ The bundled store setup creates a sample product and enables Cash on Delivery
 
 ## Development
 
-Install dependencies and run workspace development tasks:
+Install dependencies and run workspace development tasks. `pnpm dev` and the
+root database scripts load the ignored root `.env` automatically:
 
 ```bash
 pnpm install
+docker compose -f docker-compose.dev.yml up -d postgres
+pnpm db:generate
+pnpm db:migrate
 pnpm dev
 ```
 
-Build the application images and import them into the local k3d cluster with
+For direct WooCommerce MCP development, set `WC_BASE_URL`,
+`WC_CONSUMER_KEY`, and `WC_CONSUMER_SECRET` in `.env`. Build the application
+images and import them into the local k3d cluster with
 `bash scripts/build-images.sh --local`. Push images to GHCR with
 `bash scripts/build-images.sh --push`; see
 [docs/container-images.md](./docs/container-images.md). Environment setup for
@@ -159,5 +168,5 @@ are in [docs/DEMO.md](./docs/DEMO.md).
   proxy header stripping. See [docs/woo-mcp.md](./docs/woo-mcp.md).
 - **Chat fails while other features work:** configure a supported provider,
   model, and server-side API key (`LLM_PROVIDER`, `LLM_MODEL`, and
-  `LLM_API_KEY`) in `.env.local`, then rerun `bash scripts/create-secrets.sh`
+  `LLM_API_KEY`) in `.env`, then rerun `bash scripts/create-secrets.sh`
   and `helm upgrade --install` or `bash scripts/up.sh`.

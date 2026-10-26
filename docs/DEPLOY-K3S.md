@@ -173,16 +173,17 @@ git checkout <source-commit-or-tag>
 kubectl config current-context
 ```
 
-Create a private local environment file. Set the dashboard admin credentials
+Create a private root environment file. If `.env` does not already exist, copy
+`.env.example` to `.env`. Set the dashboard admin credentials
 and any desired LLM provider settings; the script generates database
 passwords, WooCommerce API credentials, MCP bearer tokens, and encryption and
 session secrets when omitted:
 
 ```bash
 umask 077
-touch .env.local
-chmod 600 .env.local
-${EDITOR:-vi} .env.local
+touch .env
+chmod 600 .env
+${EDITOR:-vi} .env
 ```
 
 Use simple `KEY=value` lines (no shell `export` or quotes). For example:
@@ -195,7 +196,7 @@ LLM_MODEL=gemini-2.5-flash
 LLM_API_KEY=replace-with-your-provider-key
 ```
 
-The LLM values are optional if chat is not needed. Do not add `.env.local` to
+The LLM values are optional if chat is not needed. Do not add `.env` to
 Git, an image, or a Helm values file. Generate and apply the Kubernetes
 Secrets:
 
@@ -205,7 +206,7 @@ KUBE_NAMESPACE=platform bash scripts/create-secrets.sh
 
 The script creates `gateway-secret`, `postgres-secret`, `mcp-auth-secret`,
 `woocommerce-api-secret`, `mariadb-secret`, and `wordpress-secret`. Keep the
-`.env.local` backup in a protected password manager or encrypted backup; it
+`.env` backup in a protected password manager or encrypted backup; it
 contains the generated values needed to recover logins and encrypted upstream
 credentials. Kubernetes Secrets are base64-encoded by default, not encrypted
 at rest unless the cluster is configured for Secret encryption. Restrict
@@ -264,7 +265,7 @@ curl --fail "https://${SHOP_HOST}/"
 
 Wait for the dashboard and store certificates to show `Ready=True` and all
 pods to show `Ready`. Log in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from the
-protected `.env.local` file. The WordPress admin uses username `admin` and
+protected `.env` file. The WordPress admin uses username `admin` and
 `WORDPRESS_ADMIN_PASSWORD`. Check `kubectl get events -n platform
 --sort-by=.lastTimestamp` and `kubectl describe pod -n platform <pod>` for
 image pulls, PVC provisioning, probes, or NetworkPolicy issues. Confirm the

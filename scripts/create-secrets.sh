@@ -3,20 +3,33 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ENV_LOCAL_FILE="${ROOT_DIR}/.env.local"
+ENV_FILE="${ROOT_DIR}/.env"
 KUBE_NAMESPACE="${KUBE_NAMESPACE:-platform}"
 
-if [ ! -f "${ENV_LOCAL_FILE}" ]; then
-  touch "${ENV_LOCAL_FILE}"
+if [ ! -f "${ENV_FILE}" ]; then
+  touch "${ENV_FILE}"
 fi
 
 set +u
 # shellcheck disable=SC1090
-source "${ENV_LOCAL_FILE}" 2>/dev/null || true
+source "${ENV_FILE}"
 set -u
 
 persist_value() {
-  printf '%s=%s\n' "$1" "$2" >> "${ENV_LOCAL_FILE}"
+  local temp_file
+  temp_file="$(mktemp "${ENV_FILE}.XXXXXX")"
+  awk -F '=' -v key="$1" -v value="$2" '
+    $1 == key {
+      if (!updated) print key "=" value
+      updated = 1
+      next
+    }
+    { print }
+    END {
+      if (!updated) print key "=" value
+    }
+  ' "${ENV_FILE}" > "${temp_file}"
+  mv "${temp_file}" "${ENV_FILE}"
 }
 
 generate_random() {
@@ -127,9 +140,9 @@ LLM_PROVIDER="${LLM_PROVIDER:-google}"
 LLM_MODEL="${LLM_MODEL:-gemini-2.5-flash}"
 
 if [ "${UPDATED}" = true ]; then
-  echo "[create-secrets] Generated credentials and saved them to .env.local"
+  echo "[create-secrets] Generated credentials and saved them to .env"
 else
-  echo "[create-secrets] Using existing credentials from .env.local"
+  echo "[create-secrets] Using existing credentials from .env"
 fi
 
 kubectl create namespace "${KUBE_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -

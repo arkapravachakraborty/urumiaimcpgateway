@@ -3,12 +3,12 @@
   "private": true,
   "scripts": {
     "build": "turbo build",
-    "dev": "turbo dev",
+    "dev": "node --env-file=.env ./node_modules/turbo/bin/turbo dev",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
-    "db:generate": "turbo db:generate",
-    "db:migrate": "turbo db:migrate",
-    "db:seed": "turbo db:seed",
+    "db:generate": "node --env-file=.env ./node_modules/turbo/bin/turbo db:generate",
+    "db:migrate": "node --env-file=.env ./node_modules/turbo/bin/turbo db:migrate",
+    "db:seed": "node --env-file=.env ./node_modules/turbo/bin/turbo db:seed",
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
   "devDependencies": {
@@ -18,6 +18,6 @@
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=20.9"
   }
 }

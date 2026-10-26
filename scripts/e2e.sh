@@ -3,12 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-ENV_LOCAL_FILE="${ROOT_DIR}/.env.local"
+ENV_FILE="${ROOT_DIR}/.env"
 
-if [[ -f "${ENV_LOCAL_FILE}" ]]; then
+if [[ -f "${ENV_FILE}" ]]; then
   set -a
   # shellcheck disable=SC1090
-  source "${ENV_LOCAL_FILE}"
+  source "${ENV_FILE}"
   set +a
 fi
 
@@ -16,8 +16,8 @@ export E2E_GATEWAY_URL="${E2E_GATEWAY_URL:-http://dashboard.localtest.me:8080}"
 export E2E_NAMESPACE="${E2E_NAMESPACE:-platform}"
 export E2E_CHAT="${E2E_CHAT:-false}"
 
-: "${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env.local or the environment.}"
-: "${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env.local or the environment.}"
+: "${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env or the environment.}"
+: "${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env or the environment.}"
 
 if ! command -v node >/dev/null 2>&1 || ! command -v kubectl >/dev/null 2>&1; then
   echo "[e2e] node and kubectl are required." >&2

@@ -17,14 +17,15 @@ bash scripts/up.sh
 ```
 
 The script creates or starts the `mcp` k3d cluster, generates missing local
-credentials in the ignored `.env.local` file, applies Kubernetes Secrets to
+credentials in the ignored root `.env` file, applies Kubernetes Secrets to
 the `platform` namespace, builds and imports all five images, and installs the
 Helm release. The dashboard is at
 `http://dashboard.localtest.me:8080`; the store is at
 `http://shop.localtest.me:8080`.
 
+If `.env` does not exist yet, copy `.env.example` to `.env` before running.
 Use `K3D_CLUSTER_NAME`, `KUBE_NAMESPACE`, `IMAGE_REGISTRY`, and `IMAGE_TAG` to
-override the local defaults. Keep a copy of `.env.local` outside the repository
+override the local defaults. Keep a copy of `.env` outside the repository
 if preserving a local database or signing/encryption credentials across
 machines. The generated PostgreSQL password is URL-safe; custom values for
 `POSTGRES_PASSWORD` must also use URL-safe characters.
@@ -44,7 +45,7 @@ chart references their names and never contains secret values:
 | `wordpress-secret`       | WordPress admin password                                                                |
 
 Set `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `LLM_PROVIDER`, `LLM_MODEL`, and (as
-needed) `LLM_API_KEY` or `LLM_BASE_URL` in `.env.local` before the first
+needed) `LLM_API_KEY` or `LLM_BASE_URL` in `.env` before the first
 startup to customize the generated defaults. The secrets script preserves
 existing credentials on subsequent runs.
 

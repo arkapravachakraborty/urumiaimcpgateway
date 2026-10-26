@@ -15,7 +15,7 @@ written for a local k3d deployment and can be followed in order while recording.
 2. Wait until `kubectl get pods -n platform` reports every pod Ready. Check
    both ingresses with `kubectl get ingress -n platform`.
 3. If you want to demonstrate chat, configure a valid `LLM_API_KEY` (and, if
-   needed, `LLM_PROVIDER`, `LLM_MODEL`, or `LLM_BASE_URL`) in `.env.local`,
+   needed, `LLM_PROVIDER`, `LLM_MODEL`, or `LLM_BASE_URL`) in `.env`,
    then run `bash scripts/create-secrets.sh` and restart the gateway:
 
    ```sh
@@ -24,7 +24,7 @@ written for a local k3d deployment and can be followed in order while recording.
    ```
 
 4. Open `http://dashboard.localtest.me:8080/login` and sign in with
-   `ADMIN_EMAIL` / `ADMIN_PASSWORD` from the ignored `.env.local` file. Do not
+   `ADMIN_EMAIL` / `ADMIN_PASSWORD` from the ignored `.env` file. Do not
    show or paste passwords/API keys into the recording.
 5. Confirm `http://shop.localtest.me:8080` loads the WooCommerce storefront.
 
@@ -38,7 +38,7 @@ Manual browser steps:
 2. Complete checkout with a test name, email, and address. Select **Cash on
    delivery (COD)** and place the order.
 3. Open `http://shop.localtest.me:8080/wp-admin`, sign in with WordPress
-   `WORDPRESS_ADMIN_PASSWORD` from `.env.local`, and open **WooCommerce →
+   `WORDPRESS_ADMIN_PASSWORD` from `.env`, and open **WooCommerce →
    Orders**. Show the new order and note its order ID for the later checks.
 
 Do not use real payment or personal details in a demo.
@@ -135,7 +135,7 @@ attribution, and revokes B's key to verify the next request returns 401:
 bash scripts/e2e.sh
 ```
 
-It reads admin credentials from `.env.local` (or the environment), creates
+It reads admin credentials from `.env` (or the environment), creates
 uniquely named disposable test accounts in the database, and does not print
 the API key. Set `E2E_GATEWAY_URL` and `E2E_NAMESPACE` to override local
 defaults. Set `EXPECTED_ORDER_ID` to also assert that `woo__list_orders` returns

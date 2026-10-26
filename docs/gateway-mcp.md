@@ -10,7 +10,7 @@ through Prisma. Each upstream request uses a fresh MCP SDK client connection.
 - `DATABASE_URL`: PostgreSQL connection string.
 - `ENCRYPTION_KEY`: AES-256-GCM key, either 32 raw bytes encoded as base64 or
   64 hexadecimal characters. `scripts/create-secrets.sh` generates and stores
-  one in `.env.local`.
+  one in `.env`.
 - `SESSION_SECRET`: at least 32 characters (generate with
   `openssl rand -base64 48`), used to sign seven-day browser
   sessions and 60-second internal MCP tokens. Keep it stable across restarts.
@@ -38,15 +38,15 @@ through Prisma. Each upstream request uses a fresh MCP SDK client connection.
 - `GATEWAY_INTERNAL_URL`: optional internal MCP URL override. When omitted,
   the chat handler connects to this gateway process on loopback.
 
-Environment values are loaded from root `.env.local`, then `.env`, without
-overriding variables already set by the process.
+Environment values are loaded from the ignored root `.env` without overriding
+variables already set by the process. `pnpm dev` and the root database scripts
+also load this file before starting Turbo tasks.
 
 ## Seed and run locally
 
 1. Set `DATABASE_URL`, `ENCRYPTION_KEY`, `SESSION_SECRET`, `ADMIN_EMAIL`, and
-   `ADMIN_PASSWORD` in `.env.local`. Start PostgreSQL, run
-   `pnpm --filter @repo/db db:generate`, then apply migrations with
-   `pnpm --filter @repo/db db:migrate`.
+   `ADMIN_PASSWORD` in `.env`. Start PostgreSQL, run `pnpm db:generate`, then
+   apply migrations with `pnpm db:migrate`.
 2. Start `@repo/mcp-notes`, `@repo/mcp-utils`, and `@repo/woo-mcp` in separate
    terminals. Configure WooCommerce as described in [woo-mcp.md](./woo-mcp.md).
 3. Run `pnpm --filter @repo/gateway seed:upstreams` to register `notes` and
@@ -103,7 +103,7 @@ tool's audit row with `source=chat`; API-key requests continue to use
 sent to the browser. Model calls stop after eight steps at most.
 
 For local development, set `LLM_PROVIDER`, `LLM_MODEL`, and the provider
-credentials in `.env.local`; `turbo.json` passes these server variables through
+credentials in `.env`; `turbo.json` passes these server variables through
 the gateway dev task. For Kubernetes, place `LLM_API_KEY` in the gateway
 container from the `gateway-secret` Secret key `llm-api-key` and configure the
 non-secret provider settings as environment variables. Never add the provider

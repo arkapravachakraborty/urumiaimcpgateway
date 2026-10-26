@@ -10,9 +10,7 @@ const __dirname = path.dirname(__filename);
 // Load environment variables across possible execution directories
 const envPaths = [
   path.resolve(__dirname, "../../../.env"),
-  path.resolve(__dirname, "../../../.env.local"),
   path.resolve(process.cwd(), ".env"),
-  path.resolve(process.cwd(), ".env.local"),
 ];
 
 for (const envPath of envPaths) {
