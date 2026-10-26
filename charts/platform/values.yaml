@@ -1,6 +1,125 @@
 global:
   environment: local
 
+postgres:
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  existingSecret: postgres-secret
+  persistence:
+    storageClass: ""
+    size: 4Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+gateway:
+  image:
+    repository: local/mcpgateway/gateway
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    port: 4000
+  existingSecret: gateway-secret
+  mcpSecret: mcp-auth-secret
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+web:
+  image:
+    repository: local/mcpgateway/web
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+wooMcp:
+  image:
+    repository: local/mcpgateway/woo-mcp
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    port: 3003
+  existingSecret: woocommerce-api-secret
+  mcpSecret: mcp-auth-secret
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+mcpNotes:
+  image:
+    repository: local/mcpgateway/mcp-notes
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    port: 3001
+  mcpSecret: mcp-auth-secret
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+mcpUtils:
+  image:
+    repository: local/mcpgateway/mcp-utils
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    port: 3002
+  mcpSecret: mcp-auth-secret
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+dashboard:
+  ingress:
+    enabled: true
+    className: traefik
+    host: dashboard.localtest.me
+    annotations: {}
+    certManager:
+      enabled: false
+      clusterIssuer: letsencrypt-prod
+    tls:
+      enabled: false
+      secretName: dashboard-tls
+
+networkPolicy:
+  enabled: true
+
 mariadb:
   image:
     repository: mariadb
@@ -53,6 +172,13 @@ setup:
     repository: wordpress
     tag: "cli-2.11.0"
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
   apiSecret: woocommerce-api-secret
   store:
     currency: USD

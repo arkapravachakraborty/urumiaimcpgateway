@@ -46,10 +46,6 @@ spec:
                 if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
                     $_SERVER['HTTPS'] = 'on';
                 }
-                // Allow basic auth over HTTP for local / cluster internal requests
-                if (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'localtest.me') !== false) {
-                    $_SERVER['HTTPS'] = 'on';
-                }
                 // Pass through Basic Authorization header if stripped by Apache
                 if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
                     list($type, $cred) = explode(' ', $_SERVER['HTTP_AUTHORIZATION'], 2);

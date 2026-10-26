@@ -1,6 +1,113 @@
 global:
   environment: production
 
+postgres:
+  image:
+    repository: postgres
+    tag: "17-alpine"
+    pullPolicy: IfNotPresent
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+setup:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+gateway:
+  image:
+    repository: ghcr.io/your-org/mcpgateway/gateway
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 2
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+web:
+  image:
+    repository: ghcr.io/your-org/mcpgateway/web
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 2
+  resources:
+    requests:
+      cpu: 300m
+      memory: 512Mi
+    limits:
+      cpu: 1500m
+      memory: 2Gi
+
+wooMcp:
+  image:
+    repository: ghcr.io/your-org/mcpgateway/woo-mcp
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+mcpNotes:
+  image:
+    repository: ghcr.io/your-org/mcpgateway/mcp-notes
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+mcpUtils:
+  image:
+    repository: ghcr.io/your-org/mcpgateway/mcp-utils
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+dashboard:
+  ingress:
+    enabled: true
+    className: traefik
+    host: dashboard.yourdomain.com
+    annotations: {}
+    certManager:
+      enabled: false
+      clusterIssuer: letsencrypt-prod
+    tls:
+      enabled: false
+      secretName: dashboard-tls
+
 wordpress:
   publicUrl: "https://shop.yourdomain.com"
   ingress:

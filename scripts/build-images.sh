@@ -43,6 +43,6 @@ else
   fi
   for image in "${images[@]}"; do
     echo "[build-images] Importing ${image} into k3d cluster ${K3D_CLUSTER_NAME}"
-    k3d image import --cluster "${K3D_CLUSTER_NAME}" --image "${image}"
+    k3d image import "${image}" --cluster "${K3D_CLUSTER_NAME}"
   done
 fi

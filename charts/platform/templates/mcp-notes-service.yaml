@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-notes
+  labels:
+    {{- include "platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-notes
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.mcpNotes.service.port }}
+      targetPort: http
+  selector:
+    {{- include "platform.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-notes

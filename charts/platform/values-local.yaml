@@ -1,6 +1,100 @@
 global:
   environment: local
 
+postgres:
+  image:
+    pullPolicy: IfNotPresent
+  persistence:
+    size: 2Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+gateway:
+  image:
+    repository: local/mcpgateway/gateway
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+web:
+  image:
+    repository: local/mcpgateway/web
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+wooMcp:
+  image:
+    repository: local/mcpgateway/woo-mcp
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+mcpNotes:
+  image:
+    repository: local/mcpgateway/mcp-notes
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+mcpUtils:
+  image:
+    repository: local/mcpgateway/mcp-utils
+    tag: dev
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+dashboard:
+  ingress:
+    enabled: true
+    className: traefik
+    host: dashboard.localtest.me
+    annotations: {}
+    certManager:
+      enabled: false
+    tls:
+      enabled: false
+
 wordpress:
   publicUrl: "http://shop.localtest.me:8080"
   ingress:

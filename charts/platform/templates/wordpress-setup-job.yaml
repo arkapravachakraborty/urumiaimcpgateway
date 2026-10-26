@@ -11,13 +11,14 @@ metadata:
     "helm.sh/hook-weight": "5"
 spec:
   backoffLimit: 5
+  activeDeadlineSeconds: 900
   template:
     metadata:
       labels:
         {{- include "platform.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: store-setup
     spec:
-      restartPolicy: OnFailure
+      restartPolicy: Never
       containers:
         - name: setup
           image: "{{ .Values.setup.image.repository }}:{{ .Values.setup.image.tag }}"
@@ -54,9 +55,6 @@ spec:
                   --dbhost="${WORDPRESS_DB_HOST}" \
                   --extra-php="
               if (isset(\$_SERVER['HTTP_X_FORWARDED_PROTO']) && \$_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
-                  \$_SERVER['HTTPS'] = 'on';
-              }
-              if (isset(\$_SERVER['HTTP_HOST']) && strpos(\$_SERVER['HTTP_HOST'], 'localtest.me') !== false) {
                   \$_SERVER['HTTPS'] = 'on';
               }
               if (isset(\$_SERVER['HTTP_AUTHORIZATION'])) {
@@ -241,6 +239,22 @@ spec:
               value: {{ .Values.setup.store.product.price | quote }}
             - name: PRODUCT_DESC
               value: {{ .Values.setup.store.product.description | quote }}
+          resources:
+            {{- toYaml .Values.setup.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "kill -0 1"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "kill -0 1"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 5
           volumeMounts:
             - name: wp-content
               mountPath: /var/www/html/wp-content

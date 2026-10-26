@@ -23,6 +23,18 @@ const configSchema = z.object({
     })
     .default("http://127.0.0.1:3003/mcp"),
   MCP_AUTH_TOKEN: z.string().min(1).optional(),
+  MCP_NOTES_URL: z
+    .string()
+    .url()
+    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol))
+    .default("http://127.0.0.1:3001/mcp"),
+  MCP_NOTES_AUTH_TOKEN: z.string().min(1).optional(),
+  MCP_UTILS_URL: z
+    .string()
+    .url()
+    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol))
+    .default("http://127.0.0.1:3002/mcp"),
+  MCP_UTILS_AUTH_TOKEN: z.string().min(1).optional(),
 });
 const config = configSchema.parse(process.env);
 const [
@@ -60,21 +72,42 @@ await prisma.user.upsert({
     disabledAt: null,
   },
 });
-const wooServer = await prisma.mcpServer.findUnique({ where: { slug: "woo" } });
-if (!wooServer) {
-  await prisma.mcpServer.create({
-    data: {
-      slug: "woo",
-      name: "WooCommerce",
-      url: config.MCP_WOO_URL,
-      authType: config.MCP_AUTH_TOKEN ? ServerAuthType.BEARER : ServerAuthType.NONE,
-      encryptedCredential: config.MCP_AUTH_TOKEN
-        ? encryptCredential(config.MCP_AUTH_TOKEN, encryptionKey)
+const initialServers = [
+  {
+    slug: "woo",
+    name: "WooCommerce",
+    url: config.MCP_WOO_URL,
+    token: config.MCP_AUTH_TOKEN,
+  },
+  {
+    slug: "notes",
+    name: "Notes",
+    url: config.MCP_NOTES_URL,
+    token: config.MCP_NOTES_AUTH_TOKEN,
+  },
+  {
+    slug: "utils",
+    name: "Utilities",
+    url: config.MCP_UTILS_URL,
+    token: config.MCP_UTILS_AUTH_TOKEN,
+  },
+];
+for (const upstream of initialServers) {
+  await prisma.mcpServer.upsert({
+    where: { slug: upstream.slug },
+    create: {
+      slug: upstream.slug,
+      name: upstream.name,
+      url: upstream.url,
+      authType: upstream.token ? ServerAuthType.BEARER : ServerAuthType.NONE,
+      encryptedCredential: upstream.token
+        ? encryptCredential(upstream.token, encryptionKey)
         : null,
       enabled: true,
       status: ServerStatus.DISABLED,
       callTimeoutMs: 15_000,
     },
+    update: {},
   });
 }
 const healthChecker = new HealthChecker(repository, upstreamManager);

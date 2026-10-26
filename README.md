@@ -39,6 +39,13 @@ GHCR credentials and use `bash scripts/build-images.sh --push`. See
 [docs/container-images.md](./docs/container-images.md) for image configuration,
 environment variables, and health endpoints.
 
+To start the full local k3d platform (cluster, generated Kubernetes secrets,
+all application images, and the Helm release), run
+`bash scripts/up.sh`. The dashboard and store are available at
+`http://dashboard.localtest.me:8080` and `http://shop.localtest.me:8080`.
+See [docs/platform-deployment.md](./docs/platform-deployment.md) for secrets,
+routing, network policies, production values, and verification.
+
 Run all workspace development tasks from the repository root with:
 
 ```sh
