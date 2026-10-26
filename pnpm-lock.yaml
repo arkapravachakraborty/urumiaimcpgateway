@@ -318,6 +318,9 @@ importers:
       '@repo/eslint-config':
         specifier: workspace:*
         version: link:../../packages/eslint-config
+      '@repo/gateway':
+        specifier: workspace:^
+        version: link:../gateway
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
@@ -382,6 +385,9 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
+      prisma:
+        specifier: ^6.19.3
+        version: 6.19.3(typescript@5.9.3)
     devDependencies:
       '@repo/eslint-config':
         specifier: workspace:*
@@ -395,9 +401,6 @@ importers:
       '@types/node':
         specifier: ^22.15.3
         version: 22.15.3
-      prisma:
-        specifier: ^6.8.2
-        version: 6.19.3(typescript@5.9.3)
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(@swc/core@1.15.8(@swc/helpers@0.5.15))(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)

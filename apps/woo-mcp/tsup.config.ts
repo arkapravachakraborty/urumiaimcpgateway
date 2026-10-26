@@ -5,6 +5,7 @@ export default defineConfig({
   format: ["esm"],
   splitting: false,
   bundle: true,
+  noExternal: [/^@repo\//],
   outDir: "./dist",
   clean: true,
   minify: false,

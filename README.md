@@ -29,9 +29,15 @@ management routes, and per-upstream encrypted credentials. See
 upstream seeding, authentication, and Inspector setup.
 
 `apps/web` is the Next.js dashboard for server and member administration,
-personal API keys, audit history, and a chat placeholder. Run the web app after
-starting the gateway with `pnpm --filter @repo/web dev`; it proxies API/MCP
-requests to the gateway during local development.
+personal API keys, audit history, and the streaming chat agent. Run the web app
+after starting the gateway with `pnpm --filter @repo/web dev`; it proxies
+API/MCP requests to the gateway during local development.
+
+Build all five production images from the repository root with
+`bash scripts/build-images.sh --local` to import them into k3d, or configure
+GHCR credentials and use `bash scripts/build-images.sh --push`. See
+[docs/container-images.md](./docs/container-images.md) for image configuration,
+environment variables, and health endpoints.
 
 Run all workspace development tasks from the repository root with:
 
