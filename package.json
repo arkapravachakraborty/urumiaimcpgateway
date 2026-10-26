@@ -8,6 +8,7 @@
     "typecheck": "turbo typecheck",
     "db:generate": "turbo db:generate",
     "db:migrate": "turbo db:migrate",
+    "db:seed": "turbo db:seed",
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
   "devDependencies": {

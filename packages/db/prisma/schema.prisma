@@ -1,0 +1,105 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum ServerAuthType {
+  NONE
+  BEARER
+  HEADER
+}
+
+enum ServerStatus {
+  CONNECTED
+  UNREACHABLE
+  DISABLED
+}
+
+enum AuditStatus {
+  success
+  error
+  timeout
+  rejected
+}
+
+enum AuditSource {
+  mcp
+  chat
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(MEMBER)
+  createdAt    DateTime   @default(now())
+  disabledAt   DateTime?
+  apiKeys      ApiKey[]
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  prefix     String
+  keyHash    String    @unique
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([userId])
+  @@map("api_keys")
+}
+
+model McpServer {
+  id                  String         @id @default(cuid())
+  slug                String         @unique
+  name                String
+  url                 String
+  enabled             Boolean        @default(true)
+  authType            ServerAuthType @default(NONE)
+  authHeaderName      String?
+  encryptedCredential String?
+  callTimeoutMs       Int            @default(15000)
+  status              ServerStatus   @default(DISABLED)
+  statusCheckedAt     DateTime?
+  lastError           String?
+  cachedTools         Json?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@map("mcp_servers")
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  userId     String?
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userEmail  String
+  serverSlug String?
+  toolName   String
+  startedAt  DateTime    @default(now())
+  durationMs Int
+  status     AuditStatus
+  error      String?
+  source     AuditSource
+
+  @@index([startedAt])
+  @@index([userId])
+  @@index([serverSlug])
+  @@map("audit_logs")
+}
