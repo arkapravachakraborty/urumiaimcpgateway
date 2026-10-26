@@ -13,8 +13,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Streamyst",
-  description: "Media Forwarding",
+  title: "MCP Gateway",
+  description: "Team MCP Gateway Dashboard",
 };
 
 export default function RootLayout({
