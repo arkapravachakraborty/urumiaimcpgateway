@@ -15,6 +15,7 @@
     },
     "dev": {
       "cache": false,
+      "passThroughEnv": ["PORT", "MCP_BEARER_TOKEN", "MCP_ALLOWED_HOSTS"],
       "persistent": true
     },
     "db:generate": {},
