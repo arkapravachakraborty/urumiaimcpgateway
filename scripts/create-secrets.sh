@@ -61,6 +61,12 @@ if [ -z "${WOO_CONSUMER_SECRET:-}" ]; then
   UPDATED=true
 fi
 
+if [ -z "${ENCRYPTION_KEY:-}" ]; then
+  ENCRYPTION_KEY="$(openssl rand -base64 32)"
+  echo "ENCRYPTION_KEY=${ENCRYPTION_KEY}" >> "${ENV_LOCAL_FILE}"
+  UPDATED=true
+fi
+
 if [ "${UPDATED}" = true ]; then
   echo "[create-secrets] Generated new random credentials and saved to .env.local"
 else
@@ -84,6 +90,11 @@ kubectl create secret generic wordpress-secret \
 kubectl create secret generic woocommerce-api-secret \
   --from-literal=consumer-key="${WOO_CONSUMER_KEY}" \
   --from-literal=consumer-secret="${WOO_CONSUMER_SECRET}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# 4. Gateway encryption key
+kubectl create secret generic gateway-secret \
+  --from-literal=encryption-key="${ENCRYPTION_KEY}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "[create-secrets] Kubernetes secrets created/updated successfully!"

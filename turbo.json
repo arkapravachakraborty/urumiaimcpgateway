@@ -15,7 +15,23 @@
     },
     "dev": {
       "cache": false,
-      "passThroughEnv": ["PORT", "MCP_BEARER_TOKEN", "MCP_ALLOWED_HOSTS"],
+      "passThroughEnv": [
+        "PORT",
+        "GATEWAY_PORT",
+        "DATABASE_URL",
+        "ENCRYPTION_KEY",
+        "DEV_USER_ID",
+        "MCP_BEARER_TOKEN",
+        "MCP_ALLOWED_HOSTS",
+        "MCP_WOO_URL",
+        "MCP_NOTES_URL",
+        "MCP_UTILS_URL",
+        "MCP_AUTH_TOKEN",
+        "WC_BASE_URL",
+        "WC_PUBLIC_HOST",
+        "WC_CONSUMER_KEY",
+        "WC_CONSUMER_SECRET"
+      ],
       "persistent": true
     },
     "db:generate": {},

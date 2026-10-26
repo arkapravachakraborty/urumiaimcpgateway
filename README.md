@@ -21,6 +21,13 @@ Notes are kept in memory and reset when the server restarts. The two servers
 intentionally both provide a `search` tool; the gateway prefixes tool names
 with the server slug to avoid collisions.
 
+`apps/gateway` serves the stateless team MCP endpoint at port `4000` and
+aggregates tools from enabled database upstreams. It uses `ENCRYPTION_KEY` to
+decrypt per-upstream credentials and `DEV_USER_ID` to attribute tool-call audit
+records during development. See [docs/gateway-mcp.md](./docs/gateway-mcp.md)
+for environment configuration, upstream seeding, and Inspector setup. The
+gateway MCP core has no dashboard UI or tRPC routes yet.
+
 Run all workspace development tasks from the repository root with:
 
 ```sh
