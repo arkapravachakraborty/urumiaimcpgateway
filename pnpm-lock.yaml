@@ -291,6 +291,12 @@ importers:
 
   apps/woo-mcp:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(zod@4.3.5)
+      '@repo/mcp-kit':
+        specifier: workspace:*
+        version: link:../../packages/mcp-kit
       zod:
         specifier: ^4.3.5
         version: 4.3.5

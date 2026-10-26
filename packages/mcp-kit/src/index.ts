@@ -19,7 +19,7 @@ export interface McpHttpServerOptions {
   port?: number;
   host?: string;
   allowedHosts?: string[];
-  bearerToken?: string;
+  bearerToken?: string | null;
 }
 
 export interface RunningMcpServer {
@@ -79,7 +79,9 @@ function jsonRpcError(message: string): {
 
 export async function startMcpServer(options: McpHttpServerOptions): Promise<RunningMcpServer> {
   const port = portSchema.parse(options.port ?? process.env.PORT ?? "3000");
-  const bearerToken = bearerTokenSchema.parse(options.bearerToken ?? process.env.MCP_BEARER_TOKEN);
+  const bearerToken = bearerTokenSchema.parse(
+    options.bearerToken === null ? undefined : (options.bearerToken ?? process.env.MCP_BEARER_TOKEN),
+  );
   const host = options.host ?? "0.0.0.0";
   const defaultAllowedHosts = ["localhost", "127.0.0.1", "[::1]", options.name];
   const configuredAllowedHosts =
