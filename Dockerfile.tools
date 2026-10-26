@@ -1,0 +1,27 @@
+FROM alpine:3.20
+
+RUN apk add --no-cache \
+    bash \
+    curl \
+    openssl \
+    git \
+    jq \
+    docker-cli
+
+# Install kubectl
+RUN curl -sLO "https://dl.k8s.io/release/v1.31.0/bin/linux/amd64/kubectl" \
+    && chmod +x kubectl \
+    && mv kubectl /usr/local/bin/
+
+# Install k3d
+RUN curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+# Install helm
+RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
+    && chmod 700 get_helm.sh \
+    && ./get_helm.sh \
+    && rm get_helm.sh
+
+WORKDIR /workspace
+
+ENTRYPOINT ["/bin/bash"]
