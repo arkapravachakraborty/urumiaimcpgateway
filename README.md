@@ -45,6 +45,8 @@ all application images, and the Helm release), run
 `http://dashboard.localtest.me:8080` and `http://shop.localtest.me:8080`.
 See [docs/platform-deployment.md](./docs/platform-deployment.md) for secrets,
 routing, network policies, production values, and verification.
+The camera-ready Definition of Done walkthrough and API-level checks are in
+[docs/DEMO.md](./docs/DEMO.md) and `bash scripts/e2e.sh`.
 
 Run all workspace development tasks from the repository root with:
 
