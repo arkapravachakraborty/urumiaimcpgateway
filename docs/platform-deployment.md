@@ -3,6 +3,9 @@
 The same `charts/platform` Helm chart deploys the local k3d and production
 platforms. Environment-specific hosts, image names, replicas, and resource
 limits are supplied by `values-local.yaml` and `values-prod.yaml`.
+For the full VPS procedure, including GHCR, DNS, TLS, and rollback, see
+[DEPLOY-K3S.md](./DEPLOY-K3S.md). Design and security tradeoffs are in
+[DECISIONS.md](./DECISIONS.md).
 
 ## Local startup
 
@@ -31,14 +34,14 @@ machines. The generated PostgreSQL password is URL-safe; custom values for
 `scripts/create-secrets.sh` creates or updates only Kubernetes Secrets; the
 chart references their names and never contains secret values:
 
-| Secret | Keys |
-| --- | --- |
-| `gateway-secret` | encryption/session keys, admin login, LLM provider/model, optional LLM API key/base URL |
-| `postgres-secret` | database/user/password and the application connection URL |
-| `mcp-auth-secret` | bearer tokens for WooCommerce, notes, and utils upstreams |
-| `woocommerce-api-secret` | WooCommerce REST consumer key and secret |
-| `mariadb-secret` | MariaDB root and application passwords |
-| `wordpress-secret` | WordPress admin password |
+| Secret                   | Keys                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `gateway-secret`         | encryption/session keys, admin login, LLM provider/model, optional LLM API key/base URL |
+| `postgres-secret`        | database/user/password and the application connection URL                               |
+| `mcp-auth-secret`        | bearer tokens for WooCommerce, notes, and utils upstreams                               |
+| `woocommerce-api-secret` | WooCommerce REST consumer key and secret                                                |
+| `mariadb-secret`         | MariaDB root and application passwords                                                  |
+| `wordpress-secret`       | WordPress admin password                                                                |
 
 Set `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `LLM_PROVIDER`, `LLM_MODEL`, and (as
 needed) `LLM_API_KEY` or `LLM_BASE_URL` in `.env.local` before the first
