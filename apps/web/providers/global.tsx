@@ -3,6 +3,7 @@
 import { ThemeProvider as NextThemesProvider } from "next-themes";
 import React from "react";
 import { Toaster } from "~/components/ui/sonner";
+import { TRPCProvider } from "~/providers/trpc";
 
 export const GlobalProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
@@ -12,7 +13,7 @@ export const GlobalProviders: React.FC<{ children: React.ReactNode }> = ({ child
       enableSystem
       disableTransitionOnChange
     >
-      {children}
+      <TRPCProvider>{children}</TRPCProvider>
       <Toaster />
     </NextThemesProvider>
   );

@@ -18,6 +18,8 @@
       "passThroughEnv": [
         "PORT",
         "NODE_ENV",
+        "GATEWAY_ORIGIN",
+        "SKIP_ENV_VALIDATION",
         "GATEWAY_PORT",
         "DATABASE_URL",
         "ENCRYPTION_KEY",

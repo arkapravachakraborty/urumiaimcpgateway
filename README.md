@@ -28,6 +28,11 @@ management routes, and per-upstream encrypted credentials. See
 [docs/gateway-mcp.md](./docs/gateway-mcp.md) for environment configuration,
 upstream seeding, authentication, and Inspector setup.
 
+`apps/web` is the Next.js dashboard for server and member administration,
+personal API keys, audit history, and a chat placeholder. Run the web app after
+starting the gateway with `pnpm --filter @repo/web dev`; it proxies API/MCP
+requests to the gateway during local development.
+
 Run all workspace development tasks from the repository root with:
 
 ```sh
