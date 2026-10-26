@@ -27,6 +27,16 @@ through Prisma. Each upstream request uses a fresh MCP SDK client connection.
 - `MCP_AUTH_TOKEN`: optional bearer token used by the Woo MCP app and encrypted
   by the gateway seeder when the
   seeded `woo` upstream requires MCP authentication.
+- `LLM_PROVIDER`: `google` (default) or `openai-compatible`.
+- `LLM_API_KEY`: provider API key. Keep it in the gateway's environment only;
+  `scripts/create-secrets.sh` stores it as `gateway-secret/llm-api-key`.
+- `LLM_MODEL`: model ID; defaults to `gemini-2.5-flash` for Google and
+  `gpt-4o-mini` for OpenAI-compatible providers.
+- `LLM_BASE_URL`: required for `openai-compatible` providers, for example an
+  OpenAI-compatible Groq, OpenRouter, or Ollama endpoint. The API key is
+  optional for local endpoints that do not require one.
+- `GATEWAY_INTERNAL_URL`: optional internal MCP URL override. When omitted,
+  the chat handler connects to this gateway process on loopback.
 
 Environment values are loaded from root `.env.local`, then `.env`, without
 overriding variables already set by the process.
@@ -75,6 +85,29 @@ key revocation state and account status in PostgreSQL and updates `lastUsedAt`.
 Thus, after revocation, the next MCP request receives HTTP 401. Internal tokens
 are limited to 60 seconds and are resolved to the current enabled user for
 audit attribution.
+
+## Chat agent
+
+`POST /api/chat` accepts the signed-in user's AI SDK UI message history and
+streams an AI SDK UI-message data stream. It requires the same httpOnly session
+cookie as the dashboard. Each request opens an authenticated MCP client to the
+gateway's own `/mcp`, fetches the current enabled tools, and closes the client
+after the stream finishes. Consequently, disabled tools are removed on the next
+chat request and each tool call goes through normal gateway validation and
+timeouts.
+
+The server signs a 60-second internal token with the current user's ID and a
+`chat` source claim. The MCP handler verifies that claim before recording the
+tool's audit row with `source=chat`; API-key requests continue to use
+`source=mcp`. The token, provider API key, and upstream credentials are not
+sent to the browser. Model calls stop after eight steps at most.
+
+For local development, set `LLM_PROVIDER`, `LLM_MODEL`, and the provider
+credentials in `.env.local`; `turbo.json` passes these server variables through
+the gateway dev task. For Kubernetes, place `LLM_API_KEY` in the gateway
+container from the `gateway-secret` Secret key `llm-api-key` and configure the
+non-secret provider settings as environment variables. Never add the provider
+key to web build arguments or browser environment variables.
 
 Example login and API key issue with curl:
 

@@ -117,6 +117,7 @@ kubectl create secret generic gateway-secret \
   --from-literal=admin-email="${ADMIN_EMAIL}" \
   --from-literal=admin-password="${ADMIN_PASSWORD}" \
   --from-literal=mcp-auth-token="${MCP_AUTH_TOKEN:-}" \
+  --from-literal=llm-api-key="${LLM_API_KEY:-}" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "[create-secrets] Kubernetes secrets created/updated successfully!"

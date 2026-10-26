@@ -22,6 +22,7 @@ import {
   type AuthStore,
   type AuthenticatedUser,
 } from "./auth.js";
+import { registerChatRoute, type ChatRouteOptions } from "./chat.js";
 import type { GatewayDataRepository, AuditLogInput } from "./repository.js";
 import { UpstreamManager } from "./upstream-manager.js";
 import { UpstreamTimeoutError, UpstreamUnavailableError } from "./upstream-manager.js";
@@ -38,7 +39,7 @@ export interface GatewayAppOptions {
   authStore: AuthStore;
   sessionSecret: Uint8Array;
   encryptionKey: Buffer;
-  source?: "mcp" | "chat";
+  chat?: Pick<ChatRouteOptions, "modelFactory">;
 }
 
 export interface GatewayServerOptions extends GatewayAppOptions {
@@ -71,6 +72,11 @@ export function createGatewayApp(options: GatewayAppOptions): Express {
       console.error("[gateway] database readiness check failed");
       response.status(503).json({ status: "not ready" });
     }
+  });
+  registerChatRoute(app, {
+    authStore: options.authStore,
+    sessionSecret: options.sessionSecret,
+    ...options.chat,
   });
 
   app.post("/api/auth/login", async (request: Request, response: Response) => {
@@ -121,9 +127,9 @@ export function createGatewayApp(options: GatewayAppOptions): Express {
   );
 
   app.post("/mcp", async (request: Request, response: Response) => {
-    let user: AuthenticatedUser | null;
+    let identity: Awaited<ReturnType<typeof authenticateMcpRequest>>;
     try {
-      user = await authenticateMcpRequest(
+      identity = await authenticateMcpRequest(
         request.header("authorization"),
         options.sessionSecret,
         options.authStore,
@@ -132,11 +138,12 @@ export function createGatewayApp(options: GatewayAppOptions): Express {
       response.status(503).json({ error: "Authentication service unavailable." });
       return;
     }
-    if (!user) {
+    if (!identity) {
       response.setHeader("WWW-Authenticate", "Bearer");
       response.status(401).json({ error: "Unauthorized." });
       return;
     }
+    const { user } = identity;
     let server: McpServer | undefined;
     let transport: StreamableHTTPServerTransport | undefined;
     let cleanedUp = false;
@@ -149,7 +156,7 @@ export function createGatewayApp(options: GatewayAppOptions): Express {
     try {
       server = createGatewayMcpServer();
       transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      registerGatewayHandlers(server, options, user);
+      registerGatewayHandlers(server, options, user, identity.source);
       await server.connect(transport);
       response.once("close", () => {
         void cleanup();
@@ -201,6 +208,7 @@ export async function startGateway(options: GatewayServerOptions): Promise<{
     });
     throw new Error("Unable to determine the gateway listener address.");
   }
+  app.locals.gatewayMcpUrl = `http://127.0.0.1:${address.port}/mcp`;
   return {
     app,
     url: `http://127.0.0.1:${address.port}`,
@@ -222,6 +230,7 @@ function registerGatewayHandlers(
   server: McpServer,
   options: GatewayAppOptions,
   user: AuthenticatedUser,
+  source: "mcp" | "chat",
 ): void {
   server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: await options.upstreamManager.listTools(),
@@ -271,7 +280,7 @@ function registerGatewayHandlers(
       durationMs: Date.now() - startedAt.getTime(),
       status,
       error: errorMessage?.slice(0, 1_000) ?? null,
-      source: options.source ?? "mcp",
+      source,
     };
 
     try {

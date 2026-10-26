@@ -9,6 +9,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { MockLanguageModelV4, simulateReadableStream } from "ai/test";
 import { TRPCError } from "@trpc/server";
 import bcrypt from "bcryptjs";
 import { decryptCredential, encryptCredential, parseEncryptionKey } from "./crypto.js";
@@ -201,7 +202,7 @@ function server(slug: string, url: string, options: Partial<UpstreamServer> = {}
     authType: "NONE",
     authHeaderName: null,
     encryptedCredential: null,
-    callTimeoutMs: 150,
+    callTimeoutMs: 3_000,
     status: "CONNECTED",
     cachedTools: null,
     ...options,
@@ -232,6 +233,7 @@ before(async () => {
     server("notes", healthyNotes.url),
     server("utils", healthyUtils.url),
     server("slow", slowUpstream.url, {
+      callTimeoutMs: 150,
       cachedTools: [
         {
           name: "cached",
@@ -261,6 +263,67 @@ before(async () => {
     authStore,
     sessionSecret,
     encryptionKey,
+    chat: {
+      modelFactory: () => {
+        let step = 0;
+        return new MockLanguageModelV4({
+          doStream: async () => {
+            if (step++ === 0) {
+              return {
+                stream: simulateReadableStream({
+                  chunks: [
+                    {
+                      type: "tool-call",
+                      toolCallId: "chat-search-call",
+                      toolName: "notes__search",
+                      input: JSON.stringify({ query: "chat tool execution" }),
+                      dynamic: true,
+                    },
+                    {
+                      type: "finish",
+                      finishReason: { unified: "tool-calls", raw: undefined },
+                      logprobs: undefined,
+                      usage: {
+                        inputTokens: {
+                          total: 3,
+                          noCache: 3,
+                          cacheRead: undefined,
+                          cacheWrite: undefined,
+                        },
+                        outputTokens: { total: 4, text: 4, reasoning: undefined },
+                      },
+                    },
+                  ],
+                }),
+              };
+            }
+            return {
+              stream: simulateReadableStream({
+                chunks: [
+                  { type: "text-start", id: "answer" },
+                  { type: "text-delta", id: "answer", delta: "Mock assistant response." },
+                  { type: "text-end", id: "answer" },
+                  {
+                    type: "finish",
+                    finishReason: { unified: "stop", raw: undefined },
+                    logprobs: undefined,
+                    usage: {
+                      inputTokens: {
+                        total: 3,
+                        noCache: 3,
+                        cacheRead: undefined,
+                        cacheWrite: undefined,
+                      },
+                      outputTokens: { total: 4, text: 4, reasoning: undefined },
+                    },
+                  },
+                ],
+              }),
+            };
+          },
+        });
+      },
+    },
     host: "127.0.0.1",
     port: 0,
   });
@@ -530,6 +593,96 @@ test("MCP accepts a short-lived internal user JWT", async () => {
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
   });
   assert.notEqual(response.status, 401);
+});
+
+test("internal chat JWT calls are audited with chat source and user attribution", async () => {
+  const token = await createInternalToken(user.id, sessionSecret, "chat");
+  const client = new Client({ name: "chat-source-test", version: "1.0.0" });
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(`${gatewayServer.url}/mcp`), {
+      requestInit: { headers: { Authorization: `Bearer ${token}` } },
+    }),
+  );
+  try {
+    const auditCount = repository.audits.length;
+    const result = await client.callTool(
+      { name: "notes__search", arguments: { query: "chat attribution" } },
+      CallToolResultSchema,
+    );
+    assert.equal(firstText(result), "notes:chat attribution");
+    const audit = repository.audits.at(-1);
+    assert.equal(repository.audits.length, auditCount + 1);
+    assert.equal(audit?.userId, user.id);
+    assert.equal(audit?.source, "chat");
+    assert.equal(audit?.status, "success");
+  } finally {
+    await client.close();
+  }
+});
+
+test("chat endpoint requires a session and validates submitted messages", async () => {
+  const unauthenticated = await fetch(`${gatewayServer.url}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: [] }),
+  });
+  assert.equal(unauthenticated.status, 401);
+
+  authStore.loginUser = {
+    ...user,
+    passwordHash: await bcrypt.hash("correct-password", 4),
+    disabledAt: null,
+  };
+  const loginResponse = await fetch(`${gatewayServer.url}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: user.email, password: "correct-password" }),
+  });
+  const cookie = loginResponse.headers.get("set-cookie")?.split(";")[0];
+  assert.ok(cookie);
+
+  const invalidMessages = await fetch(`${gatewayServer.url}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify({ messages: [{ role: "system", parts: [] }] }),
+  });
+  assert.equal(invalidMessages.status, 400);
+
+  const previousProvider = process.env.LLM_PROVIDER;
+  const previousApiKey = process.env.LLM_API_KEY;
+  process.env.LLM_PROVIDER = "google";
+  process.env.LLM_API_KEY = "test-provider-key";
+  try {
+    const auditsBeforeChat = repository.audits.length;
+    const chatResponse = await fetch(`${gatewayServer.url}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify({
+        messages: [
+          { id: "user-message", role: "user", parts: [{ type: "text", text: "Say hello" }] },
+        ],
+      }),
+    });
+    assert.equal(chatResponse.status, 200);
+    assert.match(chatResponse.headers.get("content-type") ?? "", /text\/event-stream/);
+    const streamedBody = await chatResponse.text();
+    assert.match(streamedBody, /Mock assistant response\./);
+    assert.match(streamedBody, /notes__search/);
+    assert.ok(
+      repository.audits.slice(auditsBeforeChat).some(
+        (audit) =>
+          audit.source === "chat" &&
+          audit.userId === user.id &&
+          audit.serverSlug === "notes" &&
+          audit.status === "success",
+      ),
+    );
+  } finally {
+    if (previousProvider === undefined) delete process.env.LLM_PROVIDER;
+    else process.env.LLM_PROVIDER = previousProvider;
+    if (previousApiKey === undefined) delete process.env.LLM_API_KEY;
+    else process.env.LLM_API_KEY = previousApiKey;
+  }
 });
 
 function firstText(result: Awaited<ReturnType<Client["callTool"]>>): string {

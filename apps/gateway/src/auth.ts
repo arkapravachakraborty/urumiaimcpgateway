@@ -9,6 +9,11 @@ export interface AuthenticatedUser {
   role: UserRole;
 }
 
+export interface AuthenticatedMcpIdentity {
+  user: AuthenticatedUser;
+  source: "mcp" | "chat";
+}
+
 export interface LoginUser extends AuthenticatedUser {
   passwordHash: string;
   disabledAt: Date | null;
@@ -45,8 +50,12 @@ export async function createSessionToken(userId: string, secret: Uint8Array): Pr
     .sign(secret);
 }
 
-export async function createInternalToken(userId: string, secret: Uint8Array): Promise<string> {
-  return new SignJWT({ purpose: "internal" })
+export async function createInternalToken(
+  userId: string,
+  secret: Uint8Array,
+  source: "mcp" | "chat" = "mcp",
+): Promise<string> {
+  return new SignJWT({ purpose: "internal", source })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer("team-mcp-gateway")
     .setAudience("gateway-mcp")
@@ -83,7 +92,7 @@ export async function authenticateMcpRequest(
   authorization: string | undefined,
   secret: Uint8Array,
   store: AuthStore,
-): Promise<AuthenticatedUser | null> {
+): Promise<AuthenticatedMcpIdentity | null> {
   if (!authorization?.startsWith("Bearer ")) return null;
   const token = authorization.slice("Bearer ".length).trim();
   if (token.startsWith("mcpgw_")) {
@@ -92,13 +101,17 @@ export async function authenticateMcpRequest(
     if (!apiKey || apiKey.revokedAt || apiKey.user.disabledAt) return null;
     await store.touchApiKey(apiKey.id, new Date());
     return {
-      id: apiKey.user.id,
-      email: apiKey.user.email,
-      role: apiKey.user.role,
+      user: {
+        id: apiKey.user.id,
+        email: apiKey.user.email,
+        role: apiKey.user.role,
+      },
+      source: "mcp",
     };
   }
 
   let subject: string;
+  let source: "mcp" | "chat";
   try {
     const { payload } = await jwtVerify(token, secret, {
       algorithms: ["HS256"],
@@ -109,6 +122,7 @@ export async function authenticateMcpRequest(
     });
     if (
       payload.purpose !== "internal" ||
+      (payload.source !== "mcp" && payload.source !== "chat") ||
       typeof payload.sub !== "string" ||
       typeof payload.iat !== "number" ||
       typeof payload.exp !== "number" ||
@@ -117,12 +131,16 @@ export async function authenticateMcpRequest(
       return null;
     }
     subject = payload.sub;
+    source = payload.source;
   } catch {
     return null;
   }
   const user = await store.findAuthUserById(subject);
   if (!user || user.disabledAt) return null;
-  return { id: user.id, email: user.email, role: user.role };
+  return {
+    user: { id: user.id, email: user.email, role: user.role },
+    source,
+  };
 }
 
 export function hashApiKey(key: string): string {
